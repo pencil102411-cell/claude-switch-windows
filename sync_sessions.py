@@ -63,8 +63,16 @@ class Action:
         return self.target.path / self.source.path.name
 
 
+def default_data_dir() -> Path:
+    """桌面端数据文件夹：新版在 %LOCALAPPDATA%\\Claude-Data\\claude_*，老版在 %APPDATA%\\Claude。"""
+    moved = sorted(Path(os.environ["LOCALAPPDATA"]).glob("Claude-Data/claude_*/config.json"))
+    if moved:
+        return moved[0].parent
+    return Path(os.environ["APPDATA"]) / "Claude"
+
+
 def default_root() -> Path:
-    return Path(os.environ["APPDATA"]) / "Claude" / "claude-code-sessions"
+    return default_data_dir() / "claude-code-sessions"
 
 
 def default_projects() -> Path:

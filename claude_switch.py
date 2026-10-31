@@ -19,6 +19,9 @@
     python claude_switch.py switch 名字  切换到已保存的账号
     python claude_switch.py add 名字     添加新账号（会打开登录界面）
     python claude_switch.py undo         撤销上一次切换或添加
+    python claude_switch.py rename 旧名 新名  给已保存的账号改名
+
+图形界面版见 claude_switch_gui.py。
 """
 
 import argparse
@@ -58,6 +61,7 @@ class Env:
     settle: int  # 新账号登录后等多久再关桌面端（秒）
     login_timeout: int  # 等新账号登录最多多久（秒）
     yes: bool  # 不再逐项确认
+    cancel: object = None  # 图形界面用的 threading.Event：设置后停止等待新账号登录
 
     @property
     def config(self) -> Path:
@@ -395,6 +399,8 @@ def wait_for_login(env: Env):
     """等用户在桌面端登录；返回新账号编号，超时返回 None。按 Ctrl+C 取消。"""
     deadline = time.time() + env.login_timeout
     while time.time() < deadline:
+        if env.cancel is not None and env.cancel.is_set():
+            raise KeyboardInterrupt
         try:
             account, _ = login_of(read_config(env))
         except Stop:
@@ -456,6 +462,26 @@ def cmd_add(env: Env, label: str, save_current_as=None) -> None:
         print(f"这个账号之前保存过，叫「{name}」，已更新它的登录信息。")
     else:
         print(f"已添加账号「{name}」。")
+
+
+def cmd_rename(env: Env, old: str, new: str) -> None:
+    """给已保存的账号改名；只动本工具自己的文件，不用关桌面端。"""
+    profiles = load_profiles(env)
+    profile = find(profiles, label=old)
+    if profile is None:
+        raise Stop(f"没有叫「{old}」的已保存账号。")
+    new = check_label(new)
+    if new == old:
+        return
+    # Windows 的文件夹名不分大小写，只改大小写时目标文件夹就是它自己
+    if find(profiles, label=new) or ((env.profiles / new).exists() and new.lower() != old.lower()):
+        raise Stop(f"已经有叫「{new}」的账号了，换个名字。")
+    meta = json.loads((profile.path / "meta.json").read_text(encoding="utf-8"))
+    meta["label"] = new
+    target = env.profiles / new
+    os.replace(profile.path, target)
+    atomic_write(target / "meta.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"))
+    print(f"已把「{old}」改名为「{new}」。")
 
 
 def cmd_undo(env: Env) -> None:
@@ -527,8 +553,9 @@ def main() -> int:
     here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="Claude 桌面端一键切换账号")
     parser.add_argument("command", nargs="?", default="menu",
-                        choices=["menu", "list", "save", "switch", "add", "undo"])
+                        choices=["menu", "list", "save", "switch", "add", "undo", "rename"])
     parser.add_argument("label", nargs="?", default=None, help="账号名字")
+    parser.add_argument("new_label", nargs="?", default=None, help="新名字（rename 用）")
     parser.add_argument("--yes", action="store_true", help="不再逐项确认")
     # 下面几项只在测试时用
     parser.add_argument("--data-dir", type=Path, default=None)
@@ -541,7 +568,7 @@ def main() -> int:
     args = parser.parse_args()
 
     env = Env(
-        data_dir=args.data_dir or Path(os.environ["APPDATA"]) / "Claude",
+        data_dir=args.data_dir or sync.default_data_dir(),
         store=args.store or Path(os.environ["LOCALAPPDATA"]) / "claude-switch",
         projects=args.projects or sync.default_projects(),
         sessions_backup=args.sessions_backup,
@@ -556,6 +583,8 @@ def main() -> int:
             raise Stop("没找到 Claude 桌面端的数据文件夹，这台电脑上可能没装桌面端。")
         if args.command in ("save", "switch", "add") and not args.label:
             raise Stop(f"请在 {args.command} 后面写上账号名字。")
+        if args.command == "rename" and not (args.label and args.new_label):
+            raise Stop("用法：rename 旧名字 新名字")
         {
             "menu": lambda: menu(env),
             "list": lambda: cmd_list(env),
@@ -563,6 +592,7 @@ def main() -> int:
             "switch": lambda: cmd_switch(env, args.label),
             "add": lambda: cmd_add(env, args.label),
             "undo": lambda: cmd_undo(env),
+            "rename": lambda: cmd_rename(env, args.label, args.new_label),
         }[args.command]()
         code = 0
     except Stop as reason:
