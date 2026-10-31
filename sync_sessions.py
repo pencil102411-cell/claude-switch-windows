@@ -170,12 +170,16 @@ def current_account(root: Path) -> str:
         return ""
 
 
+# 图形界面用 pythonw 运行、没有控制台，这时每起一个命令行程序都会弹一个黑窗口；加上这个标记就不弹
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def powershell(command: str):
     """跑一条 PowerShell 命令，返回输出；跑不了时返回 None。"""
     try:
         return subprocess.run(
             ["powershell", "-NoProfile", "-Command", command],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30, creationflags=NO_WINDOW,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
@@ -211,7 +215,7 @@ def close_desktop(pids: list) -> bool:
         command = ["taskkill", "/T"] + (["/F"] if force else [])
         for pid in pids:
             command += ["/PID", str(pid)]
-        subprocess.run(command, capture_output=True)
+        subprocess.run(command, capture_output=True, creationflags=NO_WINDOW)
         for _ in range(20):
             time.sleep(0.5)
             pids = desktop_processes()
