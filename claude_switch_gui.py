@@ -470,12 +470,12 @@ class App:
         self.blink = not self.blink
         self.clock.configure(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         self.cursor.configure(fg=GREEN if self.blink else PANEL)
+        state = f"BUSY ▸ {self.busy}" if self.busy else "IDLE"
+        self.state.configure(text=state, fg=AMBER if self.busy else GREEN, font=font(state, 9, True))
         if self.busy:
             self.dot.configure(fg=AMBER if self.blink else PANEL)
-            self.state.configure(text=f"BUSY ▸ {self.busy}", fg=AMBER)
         else:
             self.dot.configure(fg=GREEN if self.blink else DIM)
-            self.state.configure(text="IDLE", fg=GREEN)
         if not self.busy and time.time() - self.last_reload > RELOAD_MS / 1000:
             self.reload()
         self.render()
